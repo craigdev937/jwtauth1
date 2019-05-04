@@ -1,9 +1,7 @@
-// Connection to the Database or Model.
 import { User } from "../entity/User";
 import { IResolvers } from "graphql-tools";
 import bcrypt from "bcryptjs";
-import { sign } from "jsonwebtoken";
-import { REFRESH_TOKEN_SECRET, ACCESS_TOKEN_SECRET } from "../constants";
+import { createTokens } from "../auth";
 
 export const resolvers: IResolvers = {
     Query: {
@@ -36,17 +34,7 @@ export const resolvers: IResolvers = {
                 return null;
             }
 
-            const refreshToken = sign(
-                { userId: user.id, count: user.count }, 
-                REFRESH_TOKEN_SECRET, 
-                {expiresIn: "7d"}
-            );
-
-            const accessToken = sign(
-                { userId: user.id }, 
-                ACCESS_TOKEN_SECRET, 
-                {expiresIn: "15min"}
-            );
+            const { refreshToken, accessToken } = createTokens(user);
 
             res.cookie(
                 "refresh-token", 
@@ -57,10 +45,23 @@ export const resolvers: IResolvers = {
             res.cookie(
                 "access-token", 
                 accessToken, 
-                { expire: 60 * 15 }
+                { expire: 60 * 60 }
             );
 
             return user;
+        },
+
+        invalidateTokens: async (parent, args, {req}) => {
+            if (!req.userId) {
+                return false;
+            }
+            const user = await User.findOne(req.userId)
+            if (!user) {
+                return false;
+            }
+            user.count += 1
+            await user.save()
+            return true;
         }
     }
 };

@@ -7,7 +7,9 @@ import { typeDefs } from "./graphql/schema";
 import { resolvers } from "./graphql/resolvers";
 import { createConnection } from "typeorm";
 import { verify } from "jsonwebtoken";
-import { ACCESS_TOKEN_SECRET } from "./constants";
+import { ACCESS_TOKEN_SECRET, REFRESH_TOKEN_SECRET } from "./constants";
+import { User } from "./entity/User";
+import { createTokens } from "./auth";
 
 const main = async () => {
     await createConnection();
@@ -20,14 +22,45 @@ const main = async () => {
         context: ({ req, res }: any) => ({ req, res })
     });
 
-    app.use((req, res, next) => {
+    // JWT Token
+    app.use(async (req: any, res, next) => {
+        const refreshToken = req.cookies["refresh-token"];
         const accessToken = req.cookies["access-token"];
+        if (!refreshToken && !accessToken) {
+            return next();
+        }
+
+        // Verify the access token.
         try {
             const data = verify(accessToken, ACCESS_TOKEN_SECRET) as any;
-            (req as any).userId = data.userId;
+            req.userId = data.userId;
+            return next();
         } catch(error) {
             console.log(error)
-        }        
+        }
+
+        if (!refreshToken) {
+            return next()
+        }
+
+        // Verify the refresh token.
+        let data;
+        try {
+            data = verify(refreshToken, REFRESH_TOKEN_SECRET) as any;
+        } catch {
+            return next();
+        }
+
+        const user = await User.findOne(data.userId)
+        // Token has been invalidated.
+        if (!user || user.count !== data.count) {
+            return next();
+        }
+
+        const tokens = createTokens(user);
+        res.cookie("refresh-token", tokens.refreshToken);
+        res.cookie("access-token", tokens.accessToken);
+        req.userId = user.id;
         next();
     })
 
